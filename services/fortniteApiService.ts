@@ -3,15 +3,34 @@ import { GameNews, GameMap, PlayerStats } from "../types";
 const BASE_URL = 'https://fortnite-api.com/v2';
 const IO_BASE_URL = 'https://fortniteapi.io/v1';
 
-// YOU MUST GET A FREE KEY AT https://dashboard.fortniteapi.io/
-// In a real app, use import.meta.env.VITE_FORTNITE_API_KEY
-const API_KEY = process.env.VITE_FORTNITE_API_KEY || 'YOUR_FORTNITEAPI_IO_KEY_HERE'; 
+// Helper to safely get Env Var in Browser (Vite) or Node environments
+const getEnvVar = (viteKey: string, nodeKey: string) => {
+    let val = '';
+    try {
+        // @ts-ignore
+        if (import.meta && import.meta.env && import.meta.env[viteKey]) {
+            // @ts-ignore
+            return import.meta.env[viteKey];
+        }
+    } catch(e) {}
+    
+    try {
+        if (typeof process !== 'undefined' && process.env && process.env[nodeKey]) {
+            return process.env[nodeKey];
+        }
+    } catch(e) {}
+    
+    return '';
+}
+
+// Get the key safely
+const API_KEY = getEnvVar('VITE_FORTNITE_API_KEY', 'VITE_FORTNITE_API_KEY') || 'YOUR_FORTNITEAPI_IO_KEY_HERE';
 
 const FALLBACK_MAP_URL = "https://media.fortniteapi.io/images/map.png";
 
 export const getRealStats = async (username: string): Promise<PlayerStats | null> => {
-  if (API_KEY === 'YOUR_FORTNITEAPI_IO_KEY_HERE') {
-      console.warn("Please add a FortniteAPI.io Key in services/fortniteApiService.ts");
+  if (API_KEY === 'YOUR_FORTNITEAPI_IO_KEY_HERE' || !API_KEY) {
+      console.warn("Please add a FortniteAPI.io Key in services/fortniteApiService.ts or Environment Variables");
       return null;
   }
 

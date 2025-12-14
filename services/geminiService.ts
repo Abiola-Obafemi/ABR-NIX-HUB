@@ -1,8 +1,31 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Routine, MetaUpdate, PlayerStats } from "../types";
 
+// Helper to safely get API Key in Browser (Vite) or Node environments
+const getApiKey = () => {
+  let key = '';
+  try {
+    // Check for Vite (Browser)
+    // @ts-ignore
+    if (import.meta && import.meta.env && import.meta.env.VITE_API_KEY) {
+      // @ts-ignore
+      key = import.meta.env.VITE_API_KEY;
+    }
+  } catch (e) {}
+
+  if (!key) {
+    try {
+      // Check for Node/Webpack (Process)
+      if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+        key = process.env.API_KEY;
+      }
+    } catch (e) {}
+  }
+  return key;
+};
+
 // Initialize Gemini Client
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 const modelFlash = 'gemini-2.5-flash';
 
