@@ -8,18 +8,14 @@ import {
   ResponsiveContainer,
   CartesianGrid
 } from 'recharts';
-import { Plus, Trophy, Crosshair, Skull } from 'lucide-react';
+import { Plus, Trophy, Crosshair, Skull, TrendingUp } from 'lucide-react';
 import { JournalEntry } from '../types';
-
-// Mock data
-const initialData: JournalEntry[] = [
-  { id: '1', date: '2023-10-01', tournamentName: 'Solo Victory Cup', placement: 450, points: 120, eliminations: 15, notes: 'Good early games, died mid-game rotate twice.', keyMistake: 'Rotated late zone 4' },
-  { id: '2', date: '2023-10-08', tournamentName: 'Solo Victory Cup', placement: 320, points: 145, eliminations: 18, notes: 'Better aim, played dead side well.', keyMistake: 'Got sniped peeking too much' },
-  { id: '3', date: '2023-10-15', tournamentName: 'Duo Cash Cup', placement: 150, points: 180, eliminations: 25, notes: 'Great chemistry, communication was on point.', keyMistake: 'Split up in endgame' },
-];
+import { useUser } from '../contexts/UserContext';
 
 const TournamentJournal: React.FC = () => {
-  const [entries, setEntries] = useState<JournalEntry[]>(initialData);
+  const { data, addJournalEntry } = useUser();
+  const entries = data.journal;
+  
   const [showForm, setShowForm] = useState(false);
 
   // Form State
@@ -44,7 +40,7 @@ const TournamentJournal: React.FC = () => {
         notes: formData.notes || '',
         keyMistake: formData.keyMistake || ''
     };
-    setEntries([...entries, newEntry]);
+    addJournalEntry(newEntry);
     setShowForm(false);
     setFormData({ tournamentName: '', placement: 0, points: 0, eliminations: 0, notes: '', keyMistake: '' });
   };
@@ -66,28 +62,38 @@ const TournamentJournal: React.FC = () => {
       </div>
 
       {/* Stats Chart */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 h-80 relative">
-        <h3 className="text-neutral-500 text-sm font-bold uppercase tracking-wider mb-4 absolute top-6 left-6">Points Progression</h3>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={entries}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
-            <XAxis dataKey="date" stroke="#525252" fontSize={12} tickLine={false} axisLine={false} />
-            <YAxis stroke="#525252" fontSize={12} tickLine={false} axisLine={false} />
-            <Tooltip 
-                contentStyle={{ backgroundColor: '#000000', borderColor: '#333', borderRadius: '8px', color: '#fff' }}
-                itemStyle={{ color: '#dc2626' }}
-            />
-            <Line 
-                type="monotone" 
-                dataKey="points" 
-                stroke="#dc2626" 
-                strokeWidth={3}
-                dot={{ fill: '#dc2626', r: 4 }}
-                activeDot={{ r: 6, fill: '#fff' }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      {entries.length > 0 ? (
+        <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 h-80 relative">
+          <h3 className="text-neutral-500 text-sm font-bold uppercase tracking-wider mb-4 absolute top-6 left-6">Points Progression</h3>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={entries}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+              <XAxis dataKey="date" stroke="#525252" fontSize={12} tickLine={false} axisLine={false} />
+              <YAxis stroke="#525252" fontSize={12} tickLine={false} axisLine={false} />
+              <Tooltip 
+                  contentStyle={{ backgroundColor: '#000000', borderColor: '#333', borderRadius: '8px', color: '#fff' }}
+                  itemStyle={{ color: '#dc2626' }}
+              />
+              <Line 
+                  type="monotone" 
+                  dataKey="points" 
+                  stroke="#dc2626" 
+                  strokeWidth={3}
+                  dot={{ fill: '#dc2626', r: 4 }}
+                  activeDot={{ r: 6, fill: '#fff' }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <div className="bg-neutral-900/50 border border-dashed border-neutral-800 rounded-xl p-12 flex flex-col items-center justify-center text-center">
+            <TrendingUp className="w-12 h-12 text-neutral-700 mb-4" />
+            <h3 className="text-white font-bold text-lg">No Stats Recorded</h3>
+            <p className="text-neutral-500 max-w-sm mt-2">
+                Log your first tournament entry to visualize your points progression over time.
+            </p>
+        </div>
+      )}
 
       {/* Add Entry Form Modal/Inline */}
       {showForm && (
@@ -110,6 +116,11 @@ const TournamentJournal: React.FC = () => {
 
       {/* Entries List */}
       <div className="grid grid-cols-1 gap-4">
+        {entries.length === 0 && !showForm && (
+            <div className="text-center py-8 text-neutral-600">
+                Start by logging your recent tournaments above.
+            </div>
+        )}
         {entries.slice().reverse().map((entry) => (
             <div key={entry.id} className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-5 hover:border-red-900 transition-colors">
                 <div className="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-2">

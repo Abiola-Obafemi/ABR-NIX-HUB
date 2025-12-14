@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
 import { Target, Check, Trash2, Plus, AlertCircle } from 'lucide-react';
 import { Weakness } from '../types';
+import { useUser } from '../contexts/UserContext';
 
 const WeaknessTracker: React.FC = () => {
-  const [weaknesses, setWeaknesses] = useState<Weakness[]>([
-    { id: '1', category: 'Aim', description: 'Shotgun tracking in close range box fights', status: 'Identified', priority: 'High' },
-    { id: '2', category: 'Game Sense', description: 'Over-peeking on height during endgame', status: 'Improving', priority: 'Medium' },
-  ]);
+  const { data, addWeakness, deleteWeakness, updateWeakness } = useUser();
+  const weaknesses = data.weaknesses;
+
   const [newDesc, setNewDesc] = useState('');
   const [newCat, setNewCat] = useState<Weakness['category']>('Mechanics');
 
-  const addWeakness = (e: React.FormEvent) => {
+  const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDesc) return;
     const newItem: Weakness = {
@@ -20,21 +20,18 @@ const WeaknessTracker: React.FC = () => {
       status: 'Identified',
       priority: 'Medium'
     };
-    setWeaknesses([...weaknesses, newItem]);
+    addWeakness(newItem);
     setNewDesc('');
   };
 
-  const deleteWeakness = (id: string) => {
-    setWeaknesses(weaknesses.filter(w => w.id !== id));
-  };
-
   const toggleStatus = (id: string) => {
-    setWeaknesses(weaknesses.map(w => {
-        if(w.id === id) {
-            return { ...w, status: w.status === 'Identified' ? 'Improving' : w.status === 'Improving' ? 'Resolved' : 'Identified' }
-        }
-        return w;
-    }))
+    const item = weaknesses.find(w => w.id === id);
+    if (item) {
+        updateWeakness({
+            ...item,
+            status: item.status === 'Identified' ? 'Improving' : item.status === 'Improving' ? 'Resolved' : 'Identified'
+        });
+    }
   };
 
   const getPriorityColor = (p: string) => {
@@ -55,7 +52,7 @@ const WeaknessTracker: React.FC = () => {
         </div>
         
         {/* Simple Add Form */}
-        <form onSubmit={addWeakness} className="flex gap-2 w-full md:w-auto">
+        <form onSubmit={handleAdd} className="flex gap-2 w-full md:w-auto">
             <select 
                 value={newCat}
                 onChange={(e) => setNewCat(e.target.value as any)}
@@ -81,13 +78,14 @@ const WeaknessTracker: React.FC = () => {
 
       <div className="grid grid-cols-1 gap-4">
         {weaknesses.length === 0 && (
-            <div className="text-center py-12 text-neutral-500">
-                <Check className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No weaknesses recorded. You're either a god or you're not tracking!</p>
+            <div className="text-center py-16 text-neutral-600 border border-dashed border-neutral-800 rounded-xl">
+                <Target className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p className="font-bold text-lg">No weaknesses recorded yet.</p>
+                <p className="text-sm mt-1">Analyze your replays and add the reason you died above.</p>
             </div>
         )}
 
-        {weaknesses.map((item) => (
+        {weaknesses.slice().reverse().map((item) => (
           <div key={item.id} className="bg-neutral-900 border border-neutral-800 rounded-xl p-5 flex flex-col md:flex-row items-center justify-between gap-4 hover:border-red-600/30 transition-all group">
             <div className="flex items-center gap-4 w-full">
               <div onClick={() => toggleStatus(item.id)} className={`w-6 h-6 rounded border-2 flex items-center justify-center cursor-pointer transition-colors ${

@@ -29,19 +29,35 @@ const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 const modelFlash = 'gemini-2.5-flash';
 
-// Helper to clean markdown code blocks from JSON strings
+// Helper to clean markdown code blocks from JSON strings and extract JSON object
 const cleanAndParseJson = <T>(text: string): T | null => {
   try {
+    if (!text) return null;
+    
+    // 1. Attempt to find JSON object within text (e.g., if model chats before returning JSON)
+    const firstOpen = text.indexOf('{');
+    const lastClose = text.lastIndexOf('}');
+    
+    if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
+        const potentialJson = text.substring(firstOpen, lastClose + 1);
+        try {
+            return JSON.parse(potentialJson);
+        } catch (e) {
+            // If extracting failed, fall through to other cleaning methods
+        }
+    }
+
     let clean = text.trim();
-    // Remove markdown code blocks if present (e.g. ```json ... ```)
+    // 2. Remove markdown code blocks if present
     if (clean.startsWith('```json')) {
       clean = clean.replace(/^```json/, '').replace(/```$/, '');
     } else if (clean.startsWith('```')) {
       clean = clean.replace(/^```/, '').replace(/```$/, '');
     }
+    
     return JSON.parse(clean);
   } catch (e) {
-    console.error("JSON Parse Error:", e);
+    console.error("JSON Parse Error. Raw text:", text);
     return null;
   }
 };
@@ -83,7 +99,6 @@ export const generatePerformanceAnalysis = async (stats: PlayerStats, username: 
  */
 export const fetchPlayerStats = async (username: string): Promise<PlayerStats> => {
   try {
-    // We construct a specific prompt to help the model find the right data.
     const prompt = `
     I need you to search for the public Fortnite stats of user "${username}".
     
@@ -99,7 +114,7 @@ export const fetchPlayerStats = async (username: string): Promise<PlayerStats> =
 
     4.  **Fallback**: If you cannot find *any* specific numbers for "${username}" (maybe the profile is private), do NOT make up numbers. Return "N/A" for strings and 0 for numbers.
 
-    RETURN JSON ONLY:
+    RETURN ONLY RAW JSON. Do not include markdown formatting.
     {
       "rank": "string (default: Unranked)",
       "pr": number (default: 0),
@@ -140,7 +155,6 @@ export const fetchPlayerStats = async (username: string): Promise<PlayerStats> =
       }
     }
 
-    // Generate analysis based on the found stats
     const analysis = await generatePerformanceAnalysis(stats, username);
     stats.analysis = analysis;
     
@@ -167,17 +181,16 @@ export const getLiveMetaUpdates = async (): Promise<MetaUpdate | null> => {
   try {
     const response = await ai.models.generateContent({
       model: modelFlash,
-      contents: `Search for the current Fortnite Chapter and Season, the top 3 meta weapons right now, the main mobility item, and a major map change.
+      contents: `Search for the current Fortnite Chapter and Season (e.g. Chapter 6 Season 1), the absolute best 3 meta weapons right now, the main mobility item, and a major map change.
       
-      Return the result as a valid JSON object with the following structure:
+      Return the result as a VALID JSON object. Do not add markdown code blocks.
+      Structure:
       {
         "seasonName": "string",
         "topWeapons": ["string"],
         "mobilityMeta": "string",
         "mapChanges": "string"
-      }
-      
-      Do not output markdown code blocks.`,
+      }`,
       config: {
         tools: [{ googleSearch: {} }],
       }
@@ -210,7 +223,7 @@ export const getCoachResponse = async (
     const chat = ai.chats.create({
       model: modelFlash,
       config: {
-        tools: [{ googleSearch: {} }], // Enable search for Coach
+        tools: [{ googleSearch: {} }],
         systemInstruction: `You are an elite Fortnite Competitive Coach. 
         User Context: ${userContext}.
         
@@ -243,14 +256,15 @@ export const generateRoutine = async (
   goals: string
 ): Promise<Routine | null> => {
   try {
-    const prompt = `Create a 1-week structured Fortnite training routine for a player.
+    const prompt = `Create a 1-week structured Fortnite training routine.
     - Time available: ${hoursPerDay} hours/day
     - Weaknesses: ${weaknesses.join(', ')}
     - Goal: ${goals}
     
     IMPORTANT: Use Google Search to find ACTUAL, POPULAR Creative Map Codes for the specific drills (Aim, Mechanics, Piece Control) relevant to the current season.
     
-    Output the result as a raw JSON object (no markdown) with this structure:
+    Return ONLY valid JSON. No Markdown.
+    Structure:
     {
       "generatedAt": "string",
       "focusArea": "string",

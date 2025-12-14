@@ -107,3 +107,12 @@ export interface GamePlan {
   notes: string;
   createdAt: number;
 }
+
+// Global App State for Persistence/Sync
+export interface AppData {
+  user: UserProfile | null;
+  weaknesses: Weakness[];
+  journal: JournalEntry[];
+  gamePlans: GamePlan[];
+  lastRoutine?: Routine;
+}

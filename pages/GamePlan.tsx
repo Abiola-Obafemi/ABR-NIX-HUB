@@ -1,16 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Map as MapIcon, MousePointer2, MapPin, Navigation, Skull, Eraser, Save, RotateCcw, Loader2 } from 'lucide-react';
+import { Map as MapIcon, MousePointer2, MapPin, Navigation, Skull, Eraser, Save, RotateCcw, Loader2, FolderOpen, Trash } from 'lucide-react';
 import { getMapData } from '../services/fortniteApiService';
-import { GameMap, MapMarker, MapLine } from '../types';
+import { GameMap, MapMarker, MapLine, GamePlan as GamePlanType } from '../types';
+import { useUser } from '../contexts/UserContext';
 
 const GamePlan: React.FC = () => {
+  const { data, saveGamePlan, deleteGamePlan } = useUser();
   const [mapData, setMapData] = useState<GameMap | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Editor State
+  const [planName, setPlanName] = useState('New Strategy');
   const [activeTool, setActiveTool] = useState<'cursor' | 'drop' | 'rotate' | 'enemy' | 'line'>('cursor');
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   const [lines, setLines] = useState<MapLine[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentLine, setCurrentLine] = useState<{x: number, y: number}[]>([]);
+  const [showLoadMenu, setShowLoadMenu] = useState(false);
   
   const mapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -140,18 +146,67 @@ const GamePlan: React.FC = () => {
     }
   };
 
+  const handleSave = () => {
+      const plan: GamePlanType = {
+          id: Date.now().toString(),
+          name: planName,
+          markers,
+          lines,
+          notes: '',
+          createdAt: Date.now()
+      };
+      saveGamePlan(plan);
+      alert('Plan Saved!');
+  };
+
+  const loadPlan = (plan: GamePlanType) => {
+      setPlanName(plan.name);
+      setMarkers(plan.markers);
+      setLines(plan.lines);
+      setShowLoadMenu(false);
+  };
+
   return (
     <div className="space-y-6 h-[calc(100vh-100px)] flex flex-col">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-2">
         <div>
            <h1 className="text-2xl md:text-3xl font-bold text-white mb-1 brand-font">WAR ROOM</h1>
-           <p className="text-neutral-500 text-xs md:text-sm">Strategize drops and rotations.</p>
+           <input 
+             value={planName}
+             onChange={(e) => setPlanName(e.target.value)}
+             className="bg-transparent text-neutral-500 text-sm border-b border-transparent focus:border-red-600 focus:text-white outline-none transition-colors w-48"
+           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 relative">
+            {/* Load Menu */}
+            <div className="relative">
+                <button onClick={() => setShowLoadMenu(!showLoadMenu)} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors">
+                    <FolderOpen className="w-5 h-5" />
+                </button>
+                {showLoadMenu && (
+                    <div className="absolute right-0 top-full mt-2 w-64 bg-neutral-900 border border-neutral-800 rounded-xl shadow-xl z-50 overflow-hidden">
+                        <div className="p-3 border-b border-neutral-800 text-xs font-bold text-neutral-500 uppercase">Saved Plans</div>
+                        <div className="max-h-60 overflow-y-auto">
+                            {data.gamePlans.length === 0 && <div className="p-4 text-sm text-neutral-500 text-center">No saved plans</div>}
+                            {data.gamePlans.map(plan => (
+                                <div key={plan.id} className="flex justify-between items-center p-3 hover:bg-neutral-800 group">
+                                    <button onClick={() => loadPlan(plan)} className="text-left text-sm text-neutral-300 hover:text-white flex-1 truncate">
+                                        {plan.name}
+                                    </button>
+                                    <button onClick={(e) => { e.stopPropagation(); deleteGamePlan(plan.id); }} className="text-neutral-600 hover:text-red-500 opacity-0 group-hover:opacity-100 p-1">
+                                        <Trash className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+            
             <button onClick={clearAll} className="p-2 text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-lg transition-colors" title="Clear All">
                 <RotateCcw className="w-5 h-5" />
             </button>
-            <button className="bg-red-600 hover:bg-red-500 text-white px-3 py-2 md:px-4 rounded-lg flex items-center gap-2 font-bold shadow-lg shadow-red-600/20 text-sm md:text-base">
+            <button onClick={handleSave} className="bg-red-600 hover:bg-red-500 text-white px-3 py-2 md:px-4 rounded-lg flex items-center gap-2 font-bold shadow-lg shadow-red-600/20 text-sm md:text-base">
                 <Save className="w-4 h-4" /> <span className="hidden md:inline">SAVE PLAN</span>
             </button>
         </div>
