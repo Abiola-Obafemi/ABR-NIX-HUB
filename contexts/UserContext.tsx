@@ -1,9 +1,15 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserProfile, AppData, Weakness, JournalEntry, GamePlan, Routine } from '../types';
+import { auth, db } from '../services/firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+import { fetchPlayerStats, getLiveMetaUpdates } from '../services/geminiService';
 
 interface UserContextType {
   data: AppData;
   loading: boolean;
+  currentUser: User | null; // Firebase User
+  
   // User Actions
   updateUser: (u: UserProfile | null) => void;
   // Weakness Actions
@@ -17,7 +23,7 @@ interface UserContextType {
   deleteGamePlan: (id: string) => void;
   // Routine Actions
   saveRoutine: (r: Routine) => void;
-  // Sync Actions
+  // Manual Sync (Legacy)
   exportData: () => string;
   importData: (jsonString: string) => boolean;
 }
@@ -31,39 +37,114 @@ const INITIAL_DATA: AppData = {
   gamePlans: []
 };
 
+// Helper: Recursively convert undefined to null for Firestore compatibility
+const sanitizeForFirestore = (obj: any): any => {
+  if (obj === undefined) return null;
+  if (obj === null) return null;
+  if (typeof obj !== 'object') return obj;
+
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeForFirestore);
+  }
+
+  const result: any = {};
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      const val = obj[key];
+      result[key] = val === undefined ? null : sanitizeForFirestore(val);
+    }
+  }
+  return result;
+};
+
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [data, setData] = useState<AppData>(INITIAL_DATA);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Load from LocalStorage on mount
+  // 1. Handle Firebase Auth State Changes
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('abronix_data');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        // Migration: Check if it's the old format (just user profile)
-        if (parsed.username && !parsed.user) {
-           setData({ ...INITIAL_DATA, user: parsed });
-        } else {
-           setData({ ...INITIAL_DATA, ...parsed });
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        // If logged in, listen to Firestore
+        const userDocRef = doc(db, "users", user.uid);
+        
+        // Real-time listener for Cloud Sync
+        const unsubDoc = onSnapshot(userDocRef, (docSnap) => {
+          if (docSnap.exists()) {
+             // Merge cloud data with local structure ensuring no nulls
+             const cloudData = docSnap.data() as AppData;
+             setData({
+                 user: cloudData.user || null,
+                 weaknesses: cloudData.weaknesses || [],
+                 journal: cloudData.journal || [],
+                 gamePlans: cloudData.gamePlans || [],
+                 lastRoutine: cloudData.lastRoutine || undefined
+             });
+          }
+          setLoading(false);
+        });
+        return () => unsubDoc();
+      } else {
+        // If not logged in, try LocalStorage (Offline Mode)
+        const stored = localStorage.getItem('abronix_data');
+        if (stored) {
+            try {
+                setData(JSON.parse(stored));
+            } catch(e) { console.error(e); }
         }
+        setLoading(false);
       }
-    } catch (e) {
-      console.error("Failed to load data", e);
-    }
-    setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
-  // Save to LocalStorage on change
+  // 2. Persist Data (Firestore if Online, LocalStorage if Offline)
   useEffect(() => {
-    if (!loading) {
-      localStorage.setItem('abronix_data', JSON.stringify(data));
-      // Keep legacy key for compatibility if needed, or remove it
-      if (data.user) {
-          localStorage.setItem('snapin_user', JSON.stringify(data.user));
-      }
+    if (loading) return;
+
+    // Save to LocalStorage always as backup
+    localStorage.setItem('abronix_data', JSON.stringify(data));
+
+    // Save to Firestore if Logged In
+    if (currentUser) {
+        const saveToCloud = async () => {
+            try {
+                // Sanitize data to remove undefined values before saving
+                const safeData = sanitizeForFirestore(data);
+                await setDoc(doc(db, "users", currentUser.uid), safeData, { merge: true });
+            } catch (e) {
+                console.error("Cloud Save Error:", e);
+            }
+        };
+        // Debounce could be added here, but for now simple save
+        saveToCloud();
     }
-  }, [data, loading]);
+  }, [data, currentUser, loading]);
+
+  // 3. Auto-Refresh Stats (Every 5 Minutes)
+  useEffect(() => {
+      if (!data.user?.username) return;
+
+      const refreshStats = async () => {
+          console.log("Auto-refreshing stats...");
+          const newStats = await fetchPlayerStats(data.user!.username);
+          if (newStats && newStats.rank !== "Unavailable") {
+              setData(prev => ({
+                  ...prev,
+                  user: { ...prev.user!, stats: newStats }
+              }));
+          }
+      };
+
+      // Initial Refresh on load
+      // refreshStats(); 
+
+      const interval = setInterval(refreshStats, 5 * 60 * 1000); // 5 Minutes
+      return () => clearInterval(interval);
+  }, [data.user?.username]);
+
 
   // --- Actions ---
 
@@ -110,38 +191,27 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setData(prev => ({ ...prev, lastRoutine: r }));
   };
 
-  // --- Sync Functions ---
-
   const exportData = () => {
     try {
       const json = JSON.stringify(data);
-      return btoa(json); // Base64 encode for easy copying
-    } catch (e) {
-      console.error("Export failed", e);
-      return "";
-    }
+      return btoa(json);
+    } catch (e) { return ""; }
   };
 
   const importData = (encodedString: string) => {
     try {
       const json = atob(encodedString);
       const parsed = JSON.parse(json);
-      // Basic validation
-      if (!parsed.weaknesses || !parsed.journal) {
-        throw new Error("Invalid data format");
-      }
       setData(parsed);
       return true;
-    } catch (e) {
-      console.error("Import failed", e);
-      return false;
-    }
+    } catch (e) { return false; }
   };
 
   return (
     <UserContext.Provider value={{ 
       data, 
       loading, 
+      currentUser,
       updateUser,
       addWeakness,
       deleteWeakness,
@@ -163,10 +233,9 @@ export const useUser = () => {
   if (context === undefined) {
     throw new Error('useUser must be used within a UserProvider');
   }
-  // Adapter to maintain compatibility with existing pages expecting 'user' directly
   return {
     ...context,
     user: context.data.user,
-    setUser: context.updateUser // Alias for compatibility
+    setUser: context.updateUser
   };
 };

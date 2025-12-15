@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   MessageSquare, 
@@ -10,45 +10,27 @@ import {
   Zap,
   Map as MapIcon,
   Crown,
-  RefreshCw,
-  Copy,
-  Check,
-  Download
+  LogOut,
+  User as UserIcon,
+  RefreshCw
 } from 'lucide-react';
 import { useUser } from '../contexts/UserContext';
+import { auth } from '../services/firebase';
+import { signOut } from 'firebase/auth';
 
 const Layout: React.FC = () => {
+  const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [showSyncModal, setShowSyncModal] = useState(false);
-  const [syncString, setSyncString] = useState('');
-  const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [copied, setCopied] = useState(false);
+  const { currentUser } = useUser();
   
-  const { exportData, importData } = useUser();
-
-  const handleExport = () => {
-    const data = exportData();
-    setSyncString(data);
-    setCopied(false);
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(syncString);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleImport = () => {
-    if (!syncString) return;
-    const success = importData(syncString);
-    setImportStatus(success ? 'success' : 'error');
-    if (success) {
-        setTimeout(() => {
-            setShowSyncModal(false);
-            setImportStatus('idle');
-            setSyncString('');
-        }, 1500);
-    }
+  const handleSignOut = async () => {
+      try {
+          await signOut(auth);
+          // Optional: clear local storage if you want strict logout
+          navigate('/login');
+      } catch (error) {
+          console.error("Sign out error", error);
+      }
   };
 
   const navItems = [
@@ -62,68 +44,6 @@ const Layout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-black text-neutral-100 flex overflow-hidden">
-      {/* Sync Modal */}
-      {showSyncModal && (
-        <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-6 max-w-lg w-full shadow-2xl animate-in zoom-in duration-200">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2 brand-font">
-                        <RefreshCw className="w-5 h-5 text-red-600" /> SYNC DATA
-                    </h2>
-                    <button onClick={() => setShowSyncModal(false)} className="text-neutral-500 hover:text-white">
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
-
-                <div className="space-y-6">
-                    <div className="grid grid-cols-2 gap-4">
-                        <button 
-                            onClick={handleExport}
-                            className="p-4 bg-black border border-neutral-800 rounded-lg hover:border-red-600/50 transition-colors flex flex-col items-center gap-2"
-                        >
-                            <Download className="w-6 h-6 text-red-500" />
-                            <span className="font-bold text-sm">Export Data</span>
-                            <span className="text-xs text-neutral-500 text-center">Get code to move to another device</span>
-                        </button>
-                         <button 
-                            onClick={() => { setSyncString(''); setImportStatus('idle'); }}
-                            className="p-4 bg-black border border-neutral-800 rounded-lg hover:border-blue-600/50 transition-colors flex flex-col items-center gap-2"
-                        >
-                            <RefreshCw className="w-6 h-6 text-blue-500" />
-                            <span className="font-bold text-sm">Import Data</span>
-                            <span className="text-xs text-neutral-500 text-center">Paste code from another device</span>
-                        </button>
-                    </div>
-
-                    <div className="bg-black p-4 rounded-lg border border-neutral-800">
-                        <label className="text-xs font-bold text-neutral-500 uppercase mb-2 block">Sync Code</label>
-                        <textarea 
-                            value={syncString}
-                            onChange={(e) => setSyncString(e.target.value)}
-                            className="w-full bg-neutral-900 border border-neutral-800 rounded p-3 text-xs text-neutral-300 font-mono h-32 focus:outline-none focus:border-red-600 resize-none"
-                            placeholder="Generate export code or paste import code here..."
-                        />
-                        <div className="flex justify-end mt-2 gap-2">
-                            {syncString && (
-                                <>
-                                    <button onClick={handleCopy} className="text-xs font-bold flex items-center gap-1 text-neutral-400 hover:text-white px-3 py-1 bg-neutral-800 rounded">
-                                        {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
-                                        {copied ? 'COPIED' : 'COPY'}
-                                    </button>
-                                    <button onClick={handleImport} className={`text-xs font-bold flex items-center gap-1 text-white px-3 py-1 rounded transition-colors ${
-                                        importStatus === 'success' ? 'bg-green-600' : importStatus === 'error' ? 'bg-red-600' : 'bg-blue-600 hover:bg-blue-500'
-                                    }`}>
-                                        {importStatus === 'success' ? 'SUCCESS!' : importStatus === 'error' ? 'INVALID CODE' : 'LOAD DATA'}
-                                    </button>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-      )}
-
       {/* Sidebar - Desktop */}
       <aside className="hidden md:flex flex-col w-64 border-r border-neutral-900 bg-neutral-950">
         <div className="p-6 border-b border-neutral-900 flex items-center gap-3">
@@ -155,18 +75,33 @@ const Layout: React.FC = () => {
         </nav>
 
         <div className="p-4 border-t border-neutral-900 space-y-4">
+          {currentUser ? (
+              <div className="flex items-center gap-3 px-2 mb-2">
+                 <div className="w-8 h-8 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400">
+                    <UserIcon className="w-4 h-4" />
+                 </div>
+                 <div className="overflow-hidden">
+                    <p className="text-xs font-bold text-white truncate">{currentUser.email}</p>
+                    <div className="flex items-center gap-1 text-[10px] text-green-500">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                        Cloud Sync Active
+                    </div>
+                 </div>
+              </div>
+          ) : (
+             <div className="flex items-center gap-2 text-[10px] text-neutral-500 px-2 mb-2">
+                 <RefreshCw className="w-3 h-3" />
+                 Offline Mode
+             </div>
+          )}
+
           <button 
-            onClick={() => setShowSyncModal(true)}
+            onClick={handleSignOut}
             className="w-full py-2 bg-neutral-900 border border-neutral-800 rounded-lg text-neutral-400 text-sm hover:text-white hover:border-red-600/50 transition-all flex items-center justify-center gap-2"
           >
-            <RefreshCw className="w-3 h-3" />
-            Sync Devices
+            <LogOut className="w-3 h-3" />
+            Sign Out
           </button>
-
-          <div className="bg-neutral-900/50 rounded-lg p-4 border border-neutral-800 text-center">
-            <p className="text-xs text-neutral-500 font-medium uppercase tracking-wider mb-1">Developed by</p>
-            <p className="text-sm font-bold text-red-500 brand-font">ABØ</p>
-          </div>
         </div>
       </aside>
 
@@ -196,11 +131,11 @@ const Layout: React.FC = () => {
               </NavLink>
             ))}
              <button 
-                onClick={() => { setIsMobileMenuOpen(false); setShowSyncModal(true); }}
+                onClick={() => { setIsMobileMenuOpen(false); handleSignOut(); }}
                 className="w-full flex items-center gap-4 px-4 py-4 rounded-xl text-lg text-neutral-400 hover:text-white"
             >
-                <RefreshCw className="w-6 h-6" />
-                Sync Devices
+                <LogOut className="w-6 h-6" />
+                Sign Out
             </button>
           </nav>
         </div>

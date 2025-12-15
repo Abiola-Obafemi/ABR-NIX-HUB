@@ -165,7 +165,7 @@ const Dashboard: React.FC = () => {
                 <span className="text-red-400 text-sm">Syncing...</span>
              </div>
           ) : (
-             <p className="text-xl font-bold text-white mb-4 line-clamp-2">{meta?.seasonName || "Chapter 6 Season 1"}</p>
+             <p className="text-xl font-bold text-white mb-4 line-clamp-2">{meta?.seasonName || "Chapter 7 Season 1"}</p>
           )}
           <a href="https://www.fortnite.com/news" target="_blank" rel="noreferrer" className="text-sm text-red-500 hover:text-red-400 uppercase font-bold tracking-wide">Patch Notes &rarr;</a>
         </div>

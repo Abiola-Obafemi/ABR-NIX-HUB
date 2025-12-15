@@ -1,11 +1,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Routine, MetaUpdate, PlayerStats } from "../types";
 
-// Helper to safely get API Key in Browser (Vite) or Node environments
+// Helper to safely get API Key
 const getApiKey = () => {
   let key = '';
   try {
-    // Check for Vite (Browser)
     // @ts-ignore
     if (import.meta && import.meta.env && import.meta.env.VITE_API_KEY) {
       // @ts-ignore
@@ -15,11 +14,14 @@ const getApiKey = () => {
 
   if (!key) {
     try {
-      // Check for Node/Webpack (Process)
       if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
         key = process.env.API_KEY;
       }
     } catch (e) {}
+  }
+  
+  if (!key) {
+      console.warn("MISSING GEMINI API KEY. AI Features will fail. Check .env file.");
   }
   return key;
 };
@@ -29,12 +31,11 @@ const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 const modelFlash = 'gemini-2.5-flash';
 
-// Helper to clean markdown code blocks from JSON strings and extract JSON object
+// Helper to clean markdown code blocks from JSON strings
 const cleanAndParseJson = <T>(text: string): T | null => {
   try {
     if (!text) return null;
     
-    // 1. Attempt to find JSON object within text (e.g., if model chats before returning JSON)
     const firstOpen = text.indexOf('{');
     const lastClose = text.lastIndexOf('}');
     
@@ -42,13 +43,10 @@ const cleanAndParseJson = <T>(text: string): T | null => {
         const potentialJson = text.substring(firstOpen, lastClose + 1);
         try {
             return JSON.parse(potentialJson);
-        } catch (e) {
-            // If extracting failed, fall through to other cleaning methods
-        }
+        } catch (e) {}
     }
 
     let clean = text.trim();
-    // 2. Remove markdown code blocks if present
     if (clean.startsWith('```json')) {
       clean = clean.replace(/^```json/, '').replace(/```$/, '');
     } else if (clean.startsWith('```')) {
@@ -57,7 +55,7 @@ const cleanAndParseJson = <T>(text: string): T | null => {
     
     return JSON.parse(clean);
   } catch (e) {
-    console.error("JSON Parse Error. Raw text:", text);
+    console.error("JSON Parse Error:", e);
     return null;
   }
 };
@@ -70,18 +68,10 @@ export const generatePerformanceAnalysis = async (stats: PlayerStats, username: 
         const prompt = `Analyze these Fortnite stats for player ${username}:
         - Rank: ${stats.rank}
         - PR: ${stats.pr}
-        - Earnings: ${stats.earnings}
-        - Win Rate: ${stats.winRate}
         - K/D: ${stats.kd}
-        - Matches: ${stats.matches}
-
-        Provide a 1-sentence, high-impact piece of advice. 
-        Example logic: 
-        - High KD but low Win Rate? -> "Stop W-keying mid-game and focus on positioning."
-        - Low KD? -> "Prioritize aim training and taking smarter right-hand peeks."
-        - Low Matches? -> "You need more arena reps to build consistency."
+        - Win Rate: ${stats.winRate}
         
-        Keep it direct and under 30 words.`;
+        Provide a 1-sentence, high-impact piece of advice for improvement.`;
 
         const response = await ai.models.generateContent({
             model: modelFlash,
@@ -90,6 +80,7 @@ export const generatePerformanceAnalysis = async (stats: PlayerStats, username: 
         
         return response.text || "Play more ranked matches to generate actionable data.";
     } catch (e) {
+        console.error("Analysis Error:", e);
         return "Focus on mechanics and game sense to improve across the board.";
     }
 }
@@ -99,22 +90,22 @@ export const generatePerformanceAnalysis = async (stats: PlayerStats, username: 
  */
 export const fetchPlayerStats = async (username: string): Promise<PlayerStats> => {
   try {
+    // Adding a timestamp to the prompt prevents caching logic sometimes
+    const timestamp = new Date().toISOString();
     const prompt = `
-    I need you to search for the public Fortnite stats of user "${username}".
+    [Context: ${timestamp}]
+    Search for LATEST public Fortnite stats for "${username}".
     
-    1.  **Search Query**: Run a Google Search for "Fortnite Tracker ${username} stats" or "Fortnite ranked stats ${username}".
-    2.  **Analyze**: Look at the titles and snippets from sites like fortnitetracker.com.
-    3.  **Extract**: I need the following numbers. If you find them, extract them exactly.
-        *   Power Ranking (PR) - Look for "PR", "Power Ranking".
-        *   Rank - Look for "Elite", "Champion", "Unreal", "Diamond", "Platinum".
-        *   Earnings - Look for "$" amount.
-        *   K/D Ratio - Look for "KD", "K/D".
-        *   Win Rate - Look for "%" win rate.
-        *   Matches - Look for "Matches Played".
+    1.  **Search Query**: "Fortnite Tracker ${username} current stats".
+    2.  **Extract**:
+        *   PR (Power Ranking)
+        *   Rank (e.g. Unreal, Elite, Champion)
+        *   Earnings
+        *   K/D Ratio
+        *   Win Rate
+        *   Matches Played
 
-    4.  **Fallback**: If you cannot find *any* specific numbers for "${username}" (maybe the profile is private), do NOT make up numbers. Return "N/A" for strings and 0 for numbers.
-
-    RETURN ONLY RAW JSON. Do not include markdown formatting.
+    RETURN ONLY RAW JSON. No Markdown.
     {
       "rank": "string (default: Unranked)",
       "pr": number (default: 0),
@@ -169,28 +160,32 @@ export const fetchPlayerStats = async (username: string): Promise<PlayerStats> =
         winRate: "N/A",
         kd: "0.0",
         matches: "0",
-        analysis: "Could not analyze stats."
+        analysis: "Check API Key or connection."
       };
   }
 };
 
 /**
- * Fetches the current Fortnite Season Meta using Google Search Grounding.
+ * Fetches the current Fortnite Season Meta.
  */
 export const getLiveMetaUpdates = async (): Promise<MetaUpdate | null> => {
   try {
-    const response = await ai.models.generateContent({
-      model: modelFlash,
-      contents: `Search for the current Fortnite Chapter and Season (e.g. Chapter 6 Season 1), the absolute best 3 meta weapons right now, the main mobility item, and a major map change.
+    // Explicitly asking to check for Chapter 7 based on user request
+    const prompt = `Search for the absolute LATEST Fortnite Chapter and Season. 
+    (Important: The user believes Chapter 7 Season 1 is live. Prioritize looking for Chapter 7 info, otherwise fallback to Chapter 6).
+    Find the best 3 meta weapons, main mobility, and map changes.
       
-      Return the result as a VALID JSON object. Do not add markdown code blocks.
-      Structure:
-      {
+    Return VALID JSON.
+    {
         "seasonName": "string",
         "topWeapons": ["string"],
         "mobilityMeta": "string",
         "mapChanges": "string"
-      }`,
+    }`;
+
+    const response = await ai.models.generateContent({
+      model: modelFlash,
+      contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
       }
@@ -202,17 +197,12 @@ export const getLiveMetaUpdates = async (): Promise<MetaUpdate | null> => {
     return null;
   } catch (error) {
     console.error("Meta Fetch Error:", error);
-    return {
-      seasonName: "Data Unavailable",
-      topWeapons: ["Unknown"],
-      mobilityMeta: "Unknown",
-      mapChanges: "Could not fetch live data."
-    };
+    return null;
   }
 };
 
 /**
- * Sends a message to the AI Fortnite Coach with Search Grounding.
+ * Sends a message to the AI Fortnite Coach.
  */
 export const getCoachResponse = async (
   message: string, 
@@ -224,14 +214,9 @@ export const getCoachResponse = async (
       model: modelFlash,
       config: {
         tools: [{ googleSearch: {} }],
-        systemInstruction: `You are an elite Fortnite Competitive Coach. 
+        systemInstruction: `You are an elite Fortnite Competitive Coach (ABØ).
         User Context: ${userContext}.
-        
-        Guidelines:
-        - ALWAYS use the Google Search tool to verify the current meta (weapons, map, stats) if you are unsure.
-        - Be direct, concise, and professional.
-        - Provide specific creative map codes if asked for drills.
-        - Focus on the CURRENT season.`,
+        ALWAYS Search for the latest season data (specifically check for Chapter 7 Season 1) before answering meta questions.`,
       },
       history: history.map(h => ({
         role: h.role,
@@ -240,31 +225,25 @@ export const getCoachResponse = async (
     });
 
     const result = await chat.sendMessage({ message });
-    return result.text || "I couldn't analyze that situation. Try rephrasing.";
+    return result.text || "I couldn't analyze that situation.";
   } catch (error) {
     console.error("Gemini Coach Error:", error);
-    return "Connection to the AI Coach grid is unstable. Check your API Key.";
+    return "Coach AI is currently offline. Please check your API Key configuration.";
   }
 };
 
-/**
- * Generates a personalized training routine with real Map Codes found via Search.
- */
 export const generateRoutine = async (
   hoursPerDay: number,
   weaknesses: string[],
   goals: string
 ): Promise<Routine | null> => {
   try {
-    const prompt = `Create a 1-week structured Fortnite training routine.
-    - Time available: ${hoursPerDay} hours/day
-    - Weaknesses: ${weaknesses.join(', ')}
-    - Goal: ${goals}
+    const prompt = `Create a 1-week Fortnite routine.
+    Time: ${hoursPerDay}h/day. Weaknesses: ${weaknesses.join(', ')}. Goal: ${goals}.
     
-    IMPORTANT: Use Google Search to find ACTUAL, POPULAR Creative Map Codes for the specific drills (Aim, Mechanics, Piece Control) relevant to the current season.
+    USE GOOGLE SEARCH to find REAL Creative Map Codes for the CURRENT Season (Prioritize Chapter 7 Season 1 maps if available).
     
-    Return ONLY valid JSON. No Markdown.
-    Structure:
+    Return ONLY JSON.
     {
       "generatedAt": "string",
       "focusArea": "string",
