@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserProfile, AppData, Weakness, JournalEntry, GamePlan, Routine } from '../types';
 import { auth, db } from '../services/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { onAuthStateChanged, User, signOut as firebaseSignOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { fetchPlayerStats, getLiveMetaUpdates } from '../services/geminiService';
 
@@ -23,6 +23,8 @@ interface UserContextType {
   deleteGamePlan: (id: string) => void;
   // Routine Actions
   saveRoutine: (r: Routine) => void;
+  // Auth Actions
+  logout: () => Promise<void>;
   // Manual Sync (Legacy)
   exportData: () => string;
   importData: (jsonString: string) => boolean;
@@ -64,14 +66,23 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // 1. Handle Firebase Auth State Changes
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubFirestore: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
+      
+      // Clean up previous firestore listener if exists
+      if (unsubFirestore) {
+        unsubFirestore();
+        unsubFirestore = null;
+      }
+
       if (user) {
         // If logged in, listen to Firestore
         const userDocRef = doc(db, "users", user.uid);
         
         // Real-time listener for Cloud Sync
-        const unsubDoc = onSnapshot(userDocRef, (docSnap) => {
+        unsubFirestore = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
              // Merge cloud data with local structure ensuring no nulls
              const cloudData = docSnap.data() as AppData;
@@ -85,27 +96,38 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           setLoading(false);
         });
-        return () => unsubDoc();
       } else {
         // If not logged in, try LocalStorage (Offline Mode)
         const stored = localStorage.getItem('abronix_data');
         if (stored) {
             try {
                 setData(JSON.parse(stored));
-            } catch(e) { console.error(e); }
+            } catch(e) { 
+              console.error(e);
+              setData(JSON.parse(JSON.stringify(INITIAL_DATA)));
+            }
+        } else {
+            // Explicitly reset state if no offline data (e.g., after Logout)
+            setData(JSON.parse(JSON.stringify(INITIAL_DATA)));
         }
         setLoading(false);
       }
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubFirestore) unsubFirestore();
+    };
   }, []);
 
   // 2. Persist Data (Firestore if Online, LocalStorage if Offline)
   useEffect(() => {
     if (loading) return;
 
-    // Save to LocalStorage always as backup
-    localStorage.setItem('abronix_data', JSON.stringify(data));
+    // Only save to localStorage if we actually have a user profile or we want to persist guest state
+    if (data.user) {
+        localStorage.setItem('abronix_data', JSON.stringify(data));
+    }
 
     // Save to Firestore if Logged In
     if (currentUser) {
@@ -118,7 +140,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 console.error("Cloud Save Error:", e);
             }
         };
-        // Debounce could be added here, but for now simple save
         saveToCloud();
     }
   }, [data, currentUser, loading]);
@@ -138,15 +159,26 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
       };
 
-      // Initial Refresh on load
-      // refreshStats(); 
-
       const interval = setInterval(refreshStats, 5 * 60 * 1000); // 5 Minutes
       return () => clearInterval(interval);
   }, [data.user?.username]);
 
 
   // --- Actions ---
+
+  const logout = async () => {
+      setLoading(true);
+      // 1. Clear Local Cache (Offline Data)
+      localStorage.removeItem('abronix_data');
+      
+      // 2. Reset State immediately
+      setData(JSON.parse(JSON.stringify(INITIAL_DATA)));
+      setCurrentUser(null);
+
+      // 3. Sign out Firebase
+      await firebaseSignOut(auth);
+      setLoading(false);
+  };
 
   const updateUser = (u: UserProfile | null) => {
     setData(prev => ({ ...prev, user: u }));
@@ -220,6 +252,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       saveGamePlan,
       deleteGamePlan,
       saveRoutine,
+      logout,
       exportData,
       importData
     }}>

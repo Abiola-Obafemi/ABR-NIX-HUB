@@ -15,18 +15,16 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useUser } from '../contexts/UserContext';
-import { auth } from '../services/firebase';
-import { signOut } from 'firebase/auth';
 
 const Layout: React.FC = () => {
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { currentUser } = useUser();
+  const { currentUser, logout } = useUser();
   
   const handleSignOut = async () => {
       try {
-          await signOut(auth);
-          // Optional: clear local storage if you want strict logout
+          // Use centralized logout to ensure clean state reset
+          await logout();
           navigate('/login');
       } catch (error) {
           console.error("Sign out error", error);
